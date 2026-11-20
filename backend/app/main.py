@@ -7,7 +7,7 @@ import app.models  # noqa: registers all ORM models before create_all
 
 from app.api import (
     allocations, auth, combined_classes, departments, electives, exports, imports,
-    programs, rooms, sections, solve, subjects, substitution, teachers, time_structures,
+    programs, public, rooms, sections, solve, subjects, substitution, teachers, time_structures,
     users, versions, weight_profiles,
 )
 from app.seed.create_admin import create_default_admin
@@ -25,7 +25,7 @@ app.add_middleware(
 for module in (
     auth, users, departments, programs, sections, time_structures, subjects, teachers,
     rooms, allocations, electives, combined_classes, weight_profiles, versions, solve,
-    substitution, exports, imports,
+    substitution, exports, imports, public,
 ):
     app.include_router(module.router)
 

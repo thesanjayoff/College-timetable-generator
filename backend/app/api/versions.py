@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -296,3 +297,23 @@ def diff_versions(version_id: int, other_version_id: int, db: Session = Depends(
         if k not in a:
             added.append({"key": k, "now": vb})
     return {"moved": moved, "added": added, "removed": removed, "unchanged": unchanged}
+
+
+@router.post("/{version_id}/share-link", dependencies=[Depends(require_write_access)])
+def create_share_link(version_id: int, db: Session = Depends(get_db),
+                       current_user: User = Depends(get_current_user)):
+    v = _version_or_404(db, version_id)
+    v.share_token = secrets.token_urlsafe(24)
+    log_action(db, current_user, "create_share_link", "timetable_version", v.id)
+    db.commit()
+    return {"share_token": v.share_token}
+
+
+@router.delete("/{version_id}/share-link", dependencies=[Depends(require_write_access)])
+def revoke_share_link(version_id: int, db: Session = Depends(get_db),
+                       current_user: User = Depends(get_current_user)):
+    v = _version_or_404(db, version_id)
+    v.share_token = None
+    log_action(db, current_user, "revoke_share_link", "timetable_version", v.id)
+    db.commit()
+    return {"ok": True}

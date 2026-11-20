@@ -24,6 +24,7 @@ class TimetableVersion(Base, TimestampMixin):
     soft_score: Mapped[float] = mapped_column(Integer, default=0)
     solve_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     scorecard: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    share_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
 
     sessions: Mapped[list["TimetableSession"]] = relationship(
         back_populates="version", cascade="all, delete-orphan"
