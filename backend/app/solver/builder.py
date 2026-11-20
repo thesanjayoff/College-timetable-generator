@@ -122,7 +122,7 @@ _AFTERNOON_CACHE: dict[int, int | None] = {}
 def _afternoon_cutoff(db: Session, structure_id: int) -> int | None:
     if structure_id in _AFTERNOON_CACHE:
         return _AFTERNOON_CACHE[structure_id]
-    structure = db.query(TimeStructure).get(structure_id)
+    structure = db.get(TimeStructure, structure_id)
     teaching = [p for p in sorted(structure.periods, key=lambda p: p.period_index)]
     teaching_only = [p for p in teaching if p.kind.value == "teaching"]
     cutoff = teaching_only[len(teaching_only) // 2].period_index if teaching_only else None

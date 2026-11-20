@@ -51,7 +51,7 @@ def plan_substitutions(db: Session, version_id: int, absent_teacher_id: int, day
         for tid in set(eligible_ids):
             if not _is_free(db, version_id, tid, day_index, s.period_index, s.num_periods):
                 continue
-            teacher = db.query(Teacher).get(tid)
+            teacher = db.get(Teacher, tid)
             candidates.append({
                 "teacher_id": tid, "name": teacher.name if teacher else str(tid),
                 "current_weekly_load": _teacher_weekly_load(db, version_id, tid),

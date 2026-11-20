@@ -34,7 +34,7 @@ def _resolve_weights(req: SolveRequest) -> dict[str, float]:
 
 @router.post("")
 def start_solve(version_id: int, payload: SolveRequest, db: Session = Depends(get_db)):
-    v = db.query(TimetableVersion).get(version_id)
+    v = db.get(TimetableVersion, version_id)
     if v is None:
         raise HTTPException(404, "Version not found")
     weights = _resolve_weights(payload)

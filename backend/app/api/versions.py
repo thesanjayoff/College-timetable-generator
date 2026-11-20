@@ -36,7 +36,7 @@ class VersionOut(BaseModel):
 
 
 def _version_or_404(db: Session, version_id: int) -> TimetableVersion:
-    v = db.query(TimetableVersion).get(version_id)
+    v = db.get(TimetableVersion, version_id)
     if v is None:
         raise HTTPException(404, "Version not found")
     return v
@@ -148,7 +148,7 @@ def list_unplaced(version_id: int, db: Session = Depends(get_db)):
 def verify(version_id: int, db: Session = Depends(get_db)):
     _version_or_404(db, version_id)
     report = verify_version(db, version_id, DEFAULT_WEIGHTS)
-    v = db.query(TimetableVersion).get(version_id)
+    v = db.get(TimetableVersion, version_id)
     v.hard_violations = len(report.hard_violations)
     v.soft_score = report.scorecard.get("total_soft_score", 0)
     v.scorecard = report.scorecard
@@ -197,7 +197,7 @@ def check_session_move(version_id: int, session_id: int, payload: MoveRequest, d
 
 @router.post("/{version_id}/sessions/{session_id}/move")
 def move_session(version_id: int, session_id: int, payload: MoveRequest, db: Session = Depends(get_db)):
-    session = db.query(TimetableSession).get(session_id)
+    session = db.get(TimetableSession, session_id)
     if session is None or session.version_id != version_id:
         raise HTTPException(404, "Session not found")
     if session.is_locked:
@@ -209,7 +209,7 @@ def move_session(version_id: int, session_id: int, payload: MoveRequest, db: Ses
     updated = apply_move(db, version_id, session_id, payload.day_index, payload.period_index,
                           payload.teacher_id, payload.room_id)
     report = verify_version(db, version_id, DEFAULT_WEIGHTS)
-    v = db.query(TimetableVersion).get(version_id)
+    v = db.get(TimetableVersion, version_id)
     v.hard_violations = len(report.hard_violations)
     v.soft_score = report.scorecard.get("total_soft_score", 0)
     v.scorecard = report.scorecard
@@ -219,7 +219,7 @@ def move_session(version_id: int, session_id: int, payload: MoveRequest, db: Ses
 
 @router.get("/{version_id}/sessions/{session_id}/suggestions")
 def suggestions(version_id: int, session_id: int, db: Session = Depends(get_db)):
-    session = db.query(TimetableSession).get(session_id)
+    session = db.get(TimetableSession, session_id)
     if session is None:
         raise HTTPException(404, "Session not found")
     section_link = db.query(SessionSection).filter(SessionSection.session_id == session_id).first()
@@ -229,7 +229,7 @@ def suggestions(version_id: int, session_id: int, db: Session = Depends(get_db))
                          or section_link.section.program.time_structure_id)
     else:
         structure_id = None
-    structure = db.query(TimeStructure).get(structure_id) if structure_id else db.query(TimeStructure).filter(
+    structure = db.get(TimeStructure, structure_id) if structure_id else db.query(TimeStructure).filter(
         TimeStructure.is_default.is_(True)).first()
     if structure is None:
         return []
@@ -238,7 +238,7 @@ def suggestions(version_id: int, session_id: int, db: Session = Depends(get_db))
 
 @router.post("/{version_id}/sessions/{session_id}/lock")
 def lock_session(version_id: int, session_id: int, db: Session = Depends(get_db)):
-    session = db.query(TimetableSession).get(session_id)
+    session = db.get(TimetableSession, session_id)
     if session is None or session.version_id != version_id:
         raise HTTPException(404, "Session not found")
     session.is_locked = True
@@ -248,7 +248,7 @@ def lock_session(version_id: int, session_id: int, db: Session = Depends(get_db)
 
 @router.post("/{version_id}/sessions/{session_id}/unlock")
 def unlock_session(version_id: int, session_id: int, db: Session = Depends(get_db)):
-    session = db.query(TimetableSession).get(session_id)
+    session = db.get(TimetableSession, session_id)
     if session is None or session.version_id != version_id:
         raise HTTPException(404, "Session not found")
     session.is_locked = False

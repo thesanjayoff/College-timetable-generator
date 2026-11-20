@@ -24,7 +24,7 @@ def check_move(
     db: Session, version_id: int, session_id: int, day_index: int, period_index: int,
     teacher_id: int | None = None, room_id: int | None = None,
 ) -> ConflictResult:
-    session = db.query(TimetableSession).get(session_id)
+    session = db.get(TimetableSession, session_id)
     if session is None or session.version_id != version_id:
         return ConflictResult(ok=False, conflicts=[{"category": "not_found", "message": "Session not found"}])
 
@@ -62,11 +62,11 @@ def check_move(
                                    "session_id": o.id, "section_ids": sorted(shared)})
 
     if room_id is not None:
-        room = db.query(Room).get(room_id)
+        room = db.get(Room, room_id)
         if room is not None:
             # capacity sanity check against the section(s) this session occupies
             from app.models.college import Section
-            total = sum((db.query(Section).get(s).strength or 0) for s in sections if db.query(Section).get(s))
+            total = sum((db.get(Section, s).strength or 0) for s in sections if db.get(Section, s))
             if total and room.capacity < total:
                 conflicts.append({"category": "room_capacity", "message":
                                    f"Room capacity {room.capacity} is less than required {total}"})
@@ -76,7 +76,7 @@ def check_move(
 
 def apply_move(db: Session, version_id: int, session_id: int, day_index: int, period_index: int,
                 teacher_id: int | None = None, room_id: int | None = None) -> TimetableSession:
-    session = db.query(TimetableSession).get(session_id)
+    session = db.get(TimetableSession, session_id)
     session.day_index = day_index
     session.period_index = period_index
     if teacher_id is not None:
@@ -89,7 +89,7 @@ def apply_move(db: Session, version_id: int, session_id: int, day_index: int, pe
 
 
 def suggest_slots(db: Session, version_id: int, session_id: int, structure: TimeStructure, limit: int = 3) -> list[dict]:
-    session = db.query(TimetableSession).get(session_id)
+    session = db.get(TimetableSession, session_id)
     if session is None:
         return []
     grid = TimeGrid(structure)

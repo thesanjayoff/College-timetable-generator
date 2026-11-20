@@ -26,7 +26,7 @@ class DiagnosisFinding:
 
 
 def _grid_for(db: Session, structure_id: int) -> TimeGrid:
-    structure = db.query(TimeStructure).get(structure_id)
+    structure = db.get(TimeStructure, structure_id)
     return TimeGrid(structure)
 
 

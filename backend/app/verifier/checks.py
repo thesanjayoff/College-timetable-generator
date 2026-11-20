@@ -93,7 +93,11 @@ def _check_section_conflicts(data: VerifierInput) -> list[Violation]:
 def _check_session_counts(data: VerifierInput) -> list[Violation]:
     out = []
     for req in data.requirements:
-        matching = [s for s in data.sessions if s.subject_id == req.subject_id and req.section_id in s.section_ids]
+        matching = [
+            s for s in data.sessions
+            if s.subject_id == req.subject_id and req.section_id in s.section_ids
+            and s.elective_basket_id is None and s.combined_class_id is None
+        ]
         occurrences = {(s.day_index, s.period_index) for s in matching}
         if len(occurrences) != req.sessions_per_week:
             out.append(Violation(
