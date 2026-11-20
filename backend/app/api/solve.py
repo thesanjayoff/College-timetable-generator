@@ -3,8 +3,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.api.deps import get_current_user, require_read_access, require_write_access
 from app.models.timetable import TimetableVersion
+from app.models.user import User
 from app.models.weight import DEFAULT_WEIGHTS, PRESETS
+from app.services.audit import log_action
 from app.solver.diagnosis import run_prechecks
 from app.solver.service import SolveConfig
 from app.services.solve_jobs import get_job, request_stop, start_solve_job
@@ -32,8 +35,9 @@ def _resolve_weights(req: SolveRequest) -> dict[str, float]:
     return DEFAULT_WEIGHTS
 
 
-@router.post("")
-def start_solve(version_id: int, payload: SolveRequest, db: Session = Depends(get_db)):
+@router.post("", dependencies=[Depends(require_write_access)])
+def start_solve(version_id: int, payload: SolveRequest, db: Session = Depends(get_db),
+                 current_user: User = Depends(get_current_user)):
     v = db.get(TimetableVersion, version_id)
     if v is None:
         raise HTTPException(404, "Version not found")
@@ -47,11 +51,13 @@ def start_solve(version_id: int, payload: SolveRequest, db: Session = Depends(ge
     previous_from = v.parent_version_id if payload.stabilize_against_parent else None
     job_id = start_solve_job(version_id, weights, config, locked_from, previous_from)
     v.solve_status = "running"
+    log_action(db, current_user, "start_solve", "timetable_version", version_id,
+               {"job_id": job_id, "weight_preset": payload.weight_preset})
     db.commit()
     return {"job_id": job_id}
 
 
-@router.get("/jobs/{job_id}")
+@router.get("/jobs/{job_id}", dependencies=[Depends(require_read_access)])
 def job_status(version_id: int, job_id: str):
     job = get_job(job_id)
     if job is None:
@@ -64,14 +70,14 @@ def job_status(version_id: int, job_id: str):
     }
 
 
-@router.post("/jobs/{job_id}/stop")
+@router.post("/jobs/{job_id}/stop", dependencies=[Depends(require_write_access)])
 def stop_job(version_id: int, job_id: str):
     if not request_stop(job_id):
         raise HTTPException(404, "Job not found")
     return {"ok": True}
 
 
-@router.get("/prechecks")
+@router.get("/prechecks", dependencies=[Depends(require_read_access)])
 def prechecks(version_id: int, db: Session = Depends(get_db)):
     findings = run_prechecks(db)
     return [
@@ -81,6 +87,6 @@ def prechecks(version_id: int, db: Session = Depends(get_db)):
     ]
 
 
-@router.get("/presets")
+@router.get("/presets", dependencies=[Depends(require_read_access)])
 def list_presets():
     return {"presets": list(PRESETS.keys()), "weights": PRESETS}

@@ -149,7 +149,9 @@ def _load_sessions(db: Session, version_id: int) -> list[VSession]:
 
 def build_verifier_input(db: Session, version_id: int) -> VerifierInput:
     default_structure = db.query(TimeStructure).filter(TimeStructure.is_default.is_(True)).first()
-    default_id = default_structure.id if default_structure else db.query(TimeStructure).first().id
+    if default_structure is None:
+        default_structure = db.query(TimeStructure).first()
+    default_id = default_structure.id if default_structure else None
     return VerifierInput(
         sessions=_load_sessions(db, version_id),
         requirements=_load_requirements(db),

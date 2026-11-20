@@ -5,9 +5,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.api.deps import get_current_user, require_read_access, require_write_access
 from app.models.enums import VersionStatus
 from app.models.timetable import SessionSection, TimetableSession, TimetableVersion, UnplacedRequirement
+from app.models.user import User
 from app.models.weight import DEFAULT_WEIGHTS
+from app.services.audit import log_action
 from app.services.grid_edit import apply_move, check_move, suggest_slots
 from app.models.structure import TimeStructure
 from app.verifier.verify import verify_version
@@ -42,7 +45,7 @@ def _version_or_404(db: Session, version_id: int) -> TimetableVersion:
     return v
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_read_access)])
 def list_versions(db: Session = Depends(get_db)):
     rows = db.query(TimetableVersion).order_by(TimetableVersion.created_at.desc()).all()
     return [
@@ -53,8 +56,9 @@ def list_versions(db: Session = Depends(get_db)):
     ]
 
 
-@router.post("")
-def create_version(payload: VersionCreate, db: Session = Depends(get_db)):
+@router.post("", dependencies=[Depends(require_write_access)])
+def create_version(payload: VersionCreate, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
     v = TimetableVersion(name=payload.name, parent_version_id=payload.parent_version_id, notes=payload.notes)
     db.add(v)
     db.commit()
@@ -77,10 +81,12 @@ def create_version(payload: VersionCreate, db: Session = Depends(get_db)):
             for sec in links:
                 db.add(SessionSection(session_id=new_row.id, section_id=sec))
         db.commit()
+    log_action(db, current_user, "create", "timetable_version", v.id, {"name": v.name})
+    db.commit()
     return {"id": v.id}
 
 
-@router.get("/{version_id}")
+@router.get("/{version_id}", dependencies=[Depends(require_read_access)])
 def get_version(version_id: int, db: Session = Depends(get_db)):
     v = _version_or_404(db, version_id)
     return {
@@ -90,17 +96,19 @@ def get_version(version_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.delete("/{version_id}")
-def delete_version(version_id: int, db: Session = Depends(get_db)):
+@router.delete("/{version_id}", dependencies=[Depends(require_write_access)])
+def delete_version(version_id: int, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
     v = _version_or_404(db, version_id)
     if v.status == VersionStatus.PUBLISHED:
         raise HTTPException(400, "Cannot delete a published version")
+    log_action(db, current_user, "delete", "timetable_version", v.id, {"name": v.name})
     db.delete(v)
     db.commit()
     return {"ok": True}
 
 
-@router.get("/{version_id}/sessions")
+@router.get("/{version_id}/sessions", dependencies=[Depends(require_read_access)])
 def list_sessions(version_id: int, section_id: int | None = None, teacher_id: int | None = None,
                    room_id: int | None = None, db: Session = Depends(get_db)):
     q = db.query(TimetableSession).filter(TimetableSession.version_id == version_id)
@@ -133,7 +141,7 @@ def list_sessions(version_id: int, section_id: int | None = None, teacher_id: in
     return out
 
 
-@router.get("/{version_id}/unplaced")
+@router.get("/{version_id}/unplaced", dependencies=[Depends(require_read_access)])
 def list_unplaced(version_id: int, db: Session = Depends(get_db)):
     rows = db.query(UnplacedRequirement).filter(UnplacedRequirement.version_id == version_id).all()
     return [
@@ -144,7 +152,7 @@ def list_unplaced(version_id: int, db: Session = Depends(get_db)):
     ]
 
 
-@router.post("/{version_id}/verify")
+@router.post("/{version_id}/verify", dependencies=[Depends(require_read_access)])
 def verify(version_id: int, db: Session = Depends(get_db)):
     _version_or_404(db, version_id)
     report = verify_version(db, version_id, DEFAULT_WEIGHTS)
@@ -156,8 +164,8 @@ def verify(version_id: int, db: Session = Depends(get_db)):
     return report.to_dict()
 
 
-@router.post("/{version_id}/publish")
-def publish(version_id: int, db: Session = Depends(get_db)):
+@router.post("/{version_id}/publish", dependencies=[Depends(require_write_access)])
+def publish(version_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     v = _version_or_404(db, version_id)
     report = verify_version(db, version_id, DEFAULT_WEIGHTS)
     if not report.is_clean:
@@ -168,14 +176,16 @@ def publish(version_id: int, db: Session = Depends(get_db)):
     v.hard_violations = 0
     v.soft_score = report.scorecard.get("total_soft_score", 0)
     v.scorecard = report.scorecard
+    log_action(db, current_user, "publish", "timetable_version", v.id, {"name": v.name})
     db.commit()
     return {"ok": True}
 
 
-@router.post("/{version_id}/rollback")
-def rollback(version_id: int, db: Session = Depends(get_db)):
+@router.post("/{version_id}/rollback", dependencies=[Depends(require_write_access)])
+def rollback(version_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     v = _version_or_404(db, version_id)
     v.status = VersionStatus.DRAFT
+    log_action(db, current_user, "rollback", "timetable_version", v.id, {"name": v.name})
     db.commit()
     return {"ok": True}
 
@@ -188,15 +198,16 @@ class MoveRequest(BaseModel):
     confirm: bool = False
 
 
-@router.post("/{version_id}/sessions/{session_id}/check-move")
+@router.post("/{version_id}/sessions/{session_id}/check-move", dependencies=[Depends(require_read_access)])
 def check_session_move(version_id: int, session_id: int, payload: MoveRequest, db: Session = Depends(get_db)):
     result = check_move(db, version_id, session_id, payload.day_index, payload.period_index,
                          payload.teacher_id, payload.room_id)
     return {"ok": result.ok, "conflicts": result.conflicts}
 
 
-@router.post("/{version_id}/sessions/{session_id}/move")
-def move_session(version_id: int, session_id: int, payload: MoveRequest, db: Session = Depends(get_db)):
+@router.post("/{version_id}/sessions/{session_id}/move", dependencies=[Depends(require_write_access)])
+def move_session(version_id: int, session_id: int, payload: MoveRequest, db: Session = Depends(get_db),
+                  current_user: User = Depends(get_current_user)):
     session = db.get(TimetableSession, session_id)
     if session is None or session.version_id != version_id:
         raise HTTPException(404, "Session not found")
@@ -213,11 +224,13 @@ def move_session(version_id: int, session_id: int, payload: MoveRequest, db: Ses
     v.hard_violations = len(report.hard_violations)
     v.soft_score = report.scorecard.get("total_soft_score", 0)
     v.scorecard = report.scorecard
+    log_action(db, current_user, "move_session", "timetable_session", session_id,
+               {"day_index": payload.day_index, "period_index": payload.period_index})
     db.commit()
     return {"ok": True, "session_id": updated.id, "verification": report.to_dict()}
 
 
-@router.get("/{version_id}/sessions/{session_id}/suggestions")
+@router.get("/{version_id}/sessions/{session_id}/suggestions", dependencies=[Depends(require_read_access)])
 def suggestions(version_id: int, session_id: int, db: Session = Depends(get_db)):
     session = db.get(TimetableSession, session_id)
     if session is None:
@@ -236,27 +249,31 @@ def suggestions(version_id: int, session_id: int, db: Session = Depends(get_db))
     return suggest_slots(db, version_id, session_id, structure)
 
 
-@router.post("/{version_id}/sessions/{session_id}/lock")
-def lock_session(version_id: int, session_id: int, db: Session = Depends(get_db)):
+@router.post("/{version_id}/sessions/{session_id}/lock", dependencies=[Depends(require_write_access)])
+def lock_session(version_id: int, session_id: int, db: Session = Depends(get_db),
+                  current_user: User = Depends(get_current_user)):
     session = db.get(TimetableSession, session_id)
     if session is None or session.version_id != version_id:
         raise HTTPException(404, "Session not found")
     session.is_locked = True
+    log_action(db, current_user, "lock_session", "timetable_session", session_id)
     db.commit()
     return {"ok": True}
 
 
-@router.post("/{version_id}/sessions/{session_id}/unlock")
-def unlock_session(version_id: int, session_id: int, db: Session = Depends(get_db)):
+@router.post("/{version_id}/sessions/{session_id}/unlock", dependencies=[Depends(require_write_access)])
+def unlock_session(version_id: int, session_id: int, db: Session = Depends(get_db),
+                    current_user: User = Depends(get_current_user)):
     session = db.get(TimetableSession, session_id)
     if session is None or session.version_id != version_id:
         raise HTTPException(404, "Session not found")
     session.is_locked = False
+    log_action(db, current_user, "unlock_session", "timetable_session", session_id)
     db.commit()
     return {"ok": True}
 
 
-@router.get("/{version_id}/diff/{other_version_id}")
+@router.get("/{version_id}/diff/{other_version_id}", dependencies=[Depends(require_read_access)])
 def diff_versions(version_id: int, other_version_id: int, db: Session = Depends(get_db)):
     def snapshot(vid):
         rows = db.query(TimetableSession).filter(TimetableSession.version_id == vid).all()

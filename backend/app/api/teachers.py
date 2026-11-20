@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, require_read_access, require_write_access
 from app.core.security import require_department_access
+from app.services.audit import log_action
 from app.models.college import Department
 from app.models.subject import Subject
 from app.models.teacher import Teacher, TeacherPreference, TeacherSubject, TeacherUnavailability
@@ -164,6 +165,7 @@ def add_teacher_unavailability(
     require_department_access(current_user, teacher.department_id)
     row = TeacherUnavailability(teacher_id=teacher_id, **payload.model_dump())
     db.add(row)
+    log_action(db, current_user, "create", "teacher_unavailability", teacher_id, payload.model_dump(mode="json"))
     db.commit()
     db.refresh(row)
     return row
@@ -180,6 +182,8 @@ def remove_teacher_unavailability(
     if row is None or row.teacher_id != teacher_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unavailability entry not found")
     db.delete(row)
+    log_action(db, current_user, "delete", "teacher_unavailability", teacher_id,
+               {"day_index": row.day_index, "period_index": row.period_index})
     db.commit()
     return None
 
@@ -207,6 +211,7 @@ def add_teacher_preference(
     require_department_access(current_user, teacher.department_id)
     row = TeacherPreference(teacher_id=teacher_id, **payload.model_dump())
     db.add(row)
+    log_action(db, current_user, "create", "teacher_preference", teacher_id, payload.model_dump(mode="json"))
     db.commit()
     db.refresh(row)
     return row
@@ -226,8 +231,11 @@ def update_teacher_preference(
     row = db.get(TeacherPreference, row_id)
     if row is None or row.teacher_id != teacher_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preference not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    for field, value in changes.items():
         setattr(row, field, value)
+    log_action(db, current_user, "update", "teacher_preference", teacher_id,
+               payload.model_dump(exclude_unset=True, mode="json"))
     db.commit()
     db.refresh(row)
     return row
@@ -244,5 +252,7 @@ def remove_teacher_preference(
     if row is None or row.teacher_id != teacher_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Preference not found")
     db.delete(row)
+    log_action(db, current_user, "delete", "teacher_preference", teacher_id,
+               {"preference_type": row.preference_type.value})
     db.commit()
     return None
