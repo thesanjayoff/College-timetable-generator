@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from app.database import SessionLocal
+from app.models.timetable import TimetableVersion
 from app.solver.builder import build_solver_input
 from app.solver.service import ProgressInfo, SolveConfig, solve
 from app.services.persist import persist_solve_result
@@ -81,6 +82,10 @@ def start_solve_job(
             job.error = str(exc)
         finally:
             job.finished_at = time.time()
+            v = db.get(TimetableVersion, version_id)
+            if v is not None:
+                v.solve_status = job.status
+                db.commit()
             db.close()
 
     thread = threading.Thread(target=run, daemon=True)

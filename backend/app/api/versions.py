@@ -13,6 +13,8 @@ from app.models.user import User
 from app.models.weight import DEFAULT_WEIGHTS
 from app.services.audit import log_action
 from app.services.grid_edit import apply_move, check_move, suggest_slots
+from app.services.notifications import notify_publish_changes
+from app.services.version_diff import diff_versions_by_occurrence
 from app.models.structure import TimeStructure
 from app.verifier.verify import verify_version
 
@@ -177,9 +179,12 @@ def publish(version_id: int, db: Session = Depends(get_db), current_user: User =
     v.hard_violations = 0
     v.soft_score = report.scorecard.get("total_soft_score", 0)
     v.scorecard = report.scorecard
-    log_action(db, current_user, "publish", "timetable_version", v.id, {"name": v.name})
+    db.flush()
+    notified = notify_publish_changes(db, version_id, v.parent_version_id)
+    log_action(db, current_user, "publish", "timetable_version", v.id,
+               {"name": v.name, "notifications_created": notified})
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "notifications_created": notified}
 
 
 @router.post("/{version_id}/rollback", dependencies=[Depends(require_write_access)])
@@ -276,27 +281,41 @@ def unlock_session(version_id: int, session_id: int, db: Session = Depends(get_d
 
 @router.get("/{version_id}/diff/{other_version_id}", dependencies=[Depends(require_read_access)])
 def diff_versions(version_id: int, other_version_id: int, db: Session = Depends(get_db)):
-    def snapshot(vid):
-        rows = db.query(TimetableSession).filter(TimetableSession.version_id == vid).all()
-        by_key = {}
-        for r in rows:
-            key = (r.subject_id, r.teacher_id, r.lab_batch_id, r.combined_class_id, r.elective_option_id)
-            by_key[key] = (r.day_index, r.period_index, r.room_id)
-        return by_key
+    """Occurrence-aware: matches each requirement group's occurrences by sorted
+    (day, period) position, not by (subject, teacher, ...) alone, which would collide
+    whenever the same pair meets more than once a week (the common case)."""
+    def slot(side: dict) -> tuple:
+        return (side["day_index"], side["period_index"], side["room_id"])
 
-    a, b = snapshot(version_id), snapshot(other_version_id)
-    moved, added, removed, unchanged = [], [], [], 0
-    for k, va in a.items():
-        if k not in b:
-            removed.append({"key": k, "was": va})
-        elif b[k] != va:
-            moved.append({"key": k, "from": va, "to": b[k]})
-        else:
-            unchanged += 1
-    for k, vb in b.items():
-        if k not in a:
-            added.append({"key": k, "now": vb})
-    return {"moved": moved, "added": added, "removed": removed, "unchanged": unchanged}
+    unchanged_box: list[int] = []
+    diffs = diff_versions_by_occurrence(db, version_id, other_version_id, unchanged_count=unchanged_box)
+    moved, added, removed = [], [], []
+    for d in diffs:
+        if d.before and d.after:
+            moved.append({"group_id": d.group_id, "occurrence": d.occurrence,
+                          "from": slot(d.before), "to": slot(d.after)})
+        elif d.before and not d.after:
+            removed.append({"group_id": d.group_id, "occurrence": d.occurrence, "was": slot(d.before)})
+        elif d.after and not d.before:
+            added.append({"group_id": d.group_id, "occurrence": d.occurrence, "now": slot(d.after)})
+    return {"moved": moved, "added": added, "removed": removed, "unchanged": unchanged_box[0] if unchanged_box else 0}
+
+
+@router.get("/{version_id}/notifications", dependencies=[Depends(require_read_access)])
+def list_notifications(version_id: int, teacher_id: int | None = None, section_id: int | None = None,
+                        db: Session = Depends(get_db)):
+    from app.models.notification import ChangeNotification
+    q = db.query(ChangeNotification).filter(ChangeNotification.version_id == version_id)
+    if teacher_id is not None:
+        q = q.filter(ChangeNotification.teacher_id == teacher_id)
+    if section_id is not None:
+        q = q.filter(ChangeNotification.section_id == section_id)
+    rows = q.order_by(ChangeNotification.created_at.desc()).all()
+    return [
+        {"id": r.id, "teacher_id": r.teacher_id, "section_id": r.section_id, "message": r.message,
+         "delivered": r.delivered, "created_at": r.created_at}
+        for r in rows
+    ]
 
 
 @router.post("/{version_id}/share-link", dependencies=[Depends(require_write_access)])

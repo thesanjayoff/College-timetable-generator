@@ -9,6 +9,7 @@ from app.models.combined import CombinedClass, CombinedClassSection
 from app.models.weight import WeightProfile
 from app.models.timetable import TimetableVersion, TimetableSession, SessionSection, UnplacedRequirement
 from app.models.user import User, AuditLog
+from app.models.notification import ChangeNotification
 
 __all__ = [
     "Department", "Program", "Section", "LabBatch",
