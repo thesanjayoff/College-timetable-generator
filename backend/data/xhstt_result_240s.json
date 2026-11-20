@@ -1,0 +1,23 @@
+{
+  "instance": "Kottenpark2008",
+  "num_events": 1027,
+  "num_teachers": 81,
+  "num_rooms": 11,
+  "num_classes": 34,
+  "convert_time_s": 0.077,
+  "solve_time_s": 242.757,
+  "solve_status": "FEASIBLE",
+  "unplaced_count": 11,
+  "placed_count": 1016,
+  "objective_value": 1100111.0,
+  "best_bound": -34500026.0,
+  "verifier_hard_violations": 20,
+  "verifier_violations_by_category": {
+    "block_size_mismatch": 20
+  },
+  "converter_notes": {
+    "events_with_no_teacher": 17,
+    "events_with_multi_teacher_only_primary_tracked": 132,
+    "events_with_unresolved_room_fallback": 0
+  }
+}

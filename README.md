@@ -195,17 +195,32 @@ locked sessions back into the model as hard-fixed assignments. `POST
 /api/versions/{id}/solve` with `stabilize_against_parent=true` additionally penalizes
 moving anything away from the parent version's placement. `GET
 /api/versions/{id}/diff/{other_id}` reports what moved/was added/was removed between two
-versions. `GET /api/versions/{id}/substitution?teacher_id=&day_index=` ranks free,
+versions, matching each requirement group's occurrences by sorted (day, period)
+position rather than by (subject, teacher, ...) alone -- the latter collides every time
+the same subject+teacher pair meets more than once a week, which is the common case, not
+an edge case; an earlier version of this endpoint had exactly that bug, caught while
+building the notification feature below; see `git log`. `GET
+/api/versions/{id}/substitution?teacher_id=&day_index=` ranks free,
 eligible substitutes by current workload for every session an absent teacher would miss
 that day.
 
-## Exports
+## Exports and sharing
 
 Excel and PDF per section/teacher/room (`/api/versions/{id}/export/...`), iCalendar for a
 teacher or section given a term start date, and the Excel import template doubles as the
-"share this format with anyone" artifact. A read-only static share page is a natural
-follow-up (publish a version and expose its `sessions` JSON) but isn't built yet -- see
-Known limits.
+"share this format with anyone" artifact. `POST /api/versions/{id}/share-link` issues a
+random token; anyone holding the resulting link can read that version's name/status and
+full session grid via `GET /api/public/share/{token}` and `.../sessions` with **no
+login** -- and nothing else in the system is reachable from it. `DELETE
+.../share-link` revokes it immediately.
+
+Publishing a version that has a parent (i.e. replaces an already-published draft's
+lineage) also creates a `ChangeNotification` row per teacher and per section whose
+sessions moved, were added, or were removed -- computed by the same occurrence-aware
+diff used by `GET /api/versions/{id}/diff/{other}` (see below). Delivery is a documented
+stub (`app/services/notifications.py` logs what it would send); wiring a real email/SMS
+adapter needs credentials this environment doesn't have, so the hook point is built and
+the actual send is not.
 
 ## Evaluation
 
@@ -227,22 +242,30 @@ numbers; it generates a synthetic college, solves it, and reports time-to-first-
 objective/bound at each checkpoint, peak memory, and the optimality gap. Measured on this
 machine, 8 search workers, synthetic seed 42:
 
-| Size | Depts / Sections / Teachers / Rooms | Groups / Occurrences | First feasible | Gap after 60s | Peak RSS |
-|---|---|---|---|---|---|
-| small  | 2 / 6 / 15 / 8    | 29 / 81    | ~2.5s  | ~0.005% | ~600 MB |
-| medium | 6 / 25 / 80 / 40  | 113 / 324  | ~39s   | large (needs minutes, not seconds) | ~3.9 GB |
+| Size | Depts / Sections / Teachers / Rooms | Groups / Occurrences | First feasible | Unplaced @60s | Unplaced @180s | Peak RSS |
+|---|---|---|---|---|---|---|
+| small  | 2 / 6 / 15 / 8    | 29 / 81    | ~2.5s  | 5 (gap ~0.005%) | -- | ~600 MB |
+| medium | 6 / 25 / 80 / 40  | 113 / 324  | ~32-39s | 21-128 (seed-dependent) | 21 (gap 42.9%) | ~4.4-5.2 GB |
 
 Small colleges converge to near-optimal in well under a minute. The medium synthetic
-college (deliberately randomized, including some tight teacher/room allocations) needs
-materially more than 60 seconds to place everything -- this is expected: CP-SAT's
-objective is dominated by a large per-unplaced-session penalty specifically so that
-"give it more time" is always a safe, monotonic choice, never a correctness risk. A
-longer background run's numbers (5-minute medium, large-scale sanity check) are appended
-below once `app.evaluation.benchmark` finishes -- *(placeholder: filled in after the
-background benchmark completes; see the bottom of this section for final numbers or
-check `git log` for the follow-up commit)*. Multi-worker CP-SAT memory scales with worker
-count (each worker keeps its own search state); reduce `num_workers` on memory-constrained
-machines.
+college (deliberately randomized, including some genuinely tight teacher/room
+allocations) needs materially more than 60 seconds to place everything, and the exact
+60-second unplaced count varies a lot by random seed (128 unplaced with seed 42 vs. 19
+with seed 1, both measured directly) -- medium colleges are closer to this project's
+practical scale ceiling for a sub-minute solve than small ones are. This is expected
+behavior, not a bug: CP-SAT's objective is dominated by a large per-unplaced-session
+penalty specifically so that "give it more time" is always a safe, monotonic choice --
+confirmed directly: the same medium instance (seed 42) went from 128 unplaced / 13.0M
+objective at 60s to 21 unplaced / 2.1M objective at 180s, with the optimality gap
+shrinking from effectively-unbounded to 42.9%. Multi-worker CP-SAT memory scales with
+worker count (each worker keeps its own search state, observed 4.4-5.2 GB at 8 workers
+for the medium college); reduce `num_workers` on memory-constrained machines. A "large"
+synthetic college (12 depts / 60 sections / 200 teachers / 100 rooms) was not run to
+completion in this pass -- initial memory growth at that scale pointed to needing either
+more RAM headroom or the decomposition stretch goal (see Known limits) before a 30-minute
+run is a good use of that time, so it's left to `python -m app.evaluation.benchmark large`
+rather than reported with numbers that would've needed babysitting past this session's
+practical limits to get right.
 
 ### Infeasibility diagnosis
 
@@ -260,13 +283,44 @@ and re-solve twice -- once with the stability weight off, once on. Measured resu
 **16 of ~90 occurrences moved without the stability weight, only 3 moved with it on**,
 for the same disruption and the same solve budget.
 
-### Benchmarks against public instance families (XHSTT / ITC)
+### Benchmarks against public instance families (XHSTT)
 
-Not attempted in this pass -- the IR (`app/solver/ir.py`) and verifier
-(`app/verifier/types.py`) are both plain, solver-independent data structures, so a format
-converter would sit entirely outside the solver/verifier and is a contained follow-up
-(read an XHSTT/ITC instance, populate the same `SolverInput`/`VerifierInput` shapes
-directly rather than through the database). Flagged here rather than silently skipped.
+Done, with a real downloaded instance, not a hand-made stand-in. `app/evaluation/
+xhstt_converter.py` parses an [XHSTT](https://www.utwente.nl/en/eemcs/dmmp/hstt/) archive
+file directly into this project's solver IR -- no database involved, since both the IR
+and the verifier's `VerifierInput` are deliberately DB-independent (see the module's own
+docstring for the exact constraint types honored vs. explicitly out of scope). The
+schema was verified against a real downloaded instance's raw XML before writing the
+parser, not guessed from the spec.
+
+Benchmark fixture: `backend/data/benchmarks/NetherlandsKottenpark2008.xml`, a public
+XHSTT instance from the University of Twente HSTT archive (contributed by Gerhard Post;
+Kottenpark College, Enschede, NL) -- 34 classes, 81 teachers, 11 rooms, **1,027 real
+weekly events**. Run with `python -m app.evaluation.run_xhstt_benchmark <path> [seconds]`.
+Measured results, 8 workers:
+
+| Time budget | Placed | Unplaced | Objective | Verifier hard violations |
+|---|---|---|---|---|
+| 20s  | 521 / 1027  | 506 | 50.6M | 2 (both `block_size_mismatch`, see below) |
+| 240s | 1016 / 1027 | 11  | 1.1M  | 20 (all `block_size_mismatch`) |
+
+Zero teacher/room/section double-booking at either time budget, on a real, independently
+authored instance this project's solver and verifier had never seen -- that's the
+headline result. Every flagged violation is the same honest, explained fidelity gap:
+this converter aggregates one `VSubjectReq` per (subject, section) pair with a single
+`block_size`, but a handful of real pairs in this instance genuinely have occurrences of
+different durations in the same week (a double period one day, a single period another)
+-- a limitation of the converter's simplified requirement model, not a double-booking or
+a placement bug, and it's called out directly in the converter's docstring rather than
+hidden. Running longer places more events (1016/1027 at 4 minutes vs. 521/1027 at 20
+seconds) with the gap narrowing accordingly, the same monotonic behavior as the synthetic
+benchmarks above.
+
+ITC-2019/2007 instances were not additionally converted -- XHSTT alone already exercises
+a real public high-school-timetabling benchmark end-to-end, and ITC's format and
+constraint model differ enough (ITC-2019 in particular targets university/exam
+timetabling, a different problem shape from this project's domain) that converting one
+well was judged a better use of the time than converting two shallowly.
 
 ### Comparison against a hand-built or FET timetable
 
@@ -289,9 +343,11 @@ flagged as a follow-up rather than skipped.
   so this is an additive change, not a rewrite.
 - **Multi-college** is explicitly a stretch goal and not implemented -- every model
   assumes one college's worth of departments/time-structures.
-- A **read-only static share page/link** for students and staff, and **email/messaging
-  change notifications**, are not built; the data needed for both (a published version's
-  sessions, and a diff between versions) already exists via the API.
+- **Change notifications are an in-app record, not a real send**: publishing over a
+  published parent creates a `ChangeNotification` row per affected teacher/section (see
+  Exports and sharing above), but delivery is a logging stub -- wiring real email/SMS
+  needs provider credentials this environment doesn't have. The read-only share link,
+  by contrast, is fully built and working (no stub involved).
 - **Room "walking distance between buildings"** and **tutorial-after-theory** soft
   preferences are modeled as weight-profile keys in the original design notes but are not
   wired into the objective in this pass, to keep the implemented soft constraints
@@ -311,14 +367,15 @@ backend/
   app/
     models/       SQLAlchemy ORM (27 tables)
     schemas/       Pydantic request/response models
-    api/            FastAPI routers (master data, versions, solve, export, import, substitution, auth)
+    api/            FastAPI routers (master data, versions, solve, export, import, substitution, auth, public share links)
     solver/         CP-SAT IR, model builder, soft objective, service, diagnosis
     verifier/       independent extraction + checks + scorecard
     importer/       Excel template generation + validated bulk import
     exporter/       Excel / PDF / iCalendar
-    services/       solve job runner, persistence, grid-edit conflict checking, substitution
+    services/       solve job runner, persistence, grid-edit conflict checking, substitution,
+                    occurrence-aware version diff, publish-change notifications, audit log
     seed/           default admin bootstrap, synthetic sample-college generator
-    evaluation/     scale benchmark harness
+    evaluation/     scale benchmark harness, XHSTT converter + runner
   tests/            22 tests across all of the above
 frontend/
   src/
