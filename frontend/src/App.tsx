@@ -20,6 +20,7 @@ import WeightProfilesPage from "./pages/weightProfiles/WeightProfilesPage";
 import UsersPage from "./pages/users/UsersPage";
 
 import VersionsListPage from "./pages/versions/VersionsListPage";
+import VersionDetailPage from "./pages/versions/VersionDetailPage";
 import SolvePage from "./pages/solve/SolvePage";
 import DiagnosticsPage from "./pages/diagnostics/DiagnosticsPage";
 import SubstitutionPlannerPage from "./pages/substitution/SubstitutionPlannerPage";
@@ -55,6 +56,7 @@ export default function App() {
             <Route path="/weight-profiles" element={<WeightProfilesPage />} />
 
             <Route path="/versions" element={<VersionsListPage />} />
+            <Route path="/versions/:versionId" element={<VersionDetailPage />} />
             <Route path="/solve" element={<SolvePage />} />
             <Route path="/diagnostics" element={<DiagnosticsPage />} />
             <Route path="/substitution" element={<SubstitutionPlannerPage />} />

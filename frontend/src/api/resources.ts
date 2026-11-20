@@ -4,6 +4,8 @@ import type {
   AllocationCreate,
   AllocationOut,
   AllocationUpdate,
+  CheckMoveRequest,
+  CheckMoveResult,
   CombinedClassCreate,
   CombinedClassOut,
   CombinedClassSectionNestedCreate,
@@ -12,6 +14,7 @@ import type {
   DepartmentCreate,
   DepartmentOut,
   DepartmentUpdate,
+  DiagnosisFindingOut,
   ElectiveBasketCreate,
   ElectiveBasketOut,
   ElectiveBasketUpdate,
@@ -20,9 +23,11 @@ import type {
   ElectiveOptionUpdate,
   ElectiveParticipationNestedCreate,
   ElectiveParticipationOut,
+  ImportReportOut,
   LabBatchNestedCreate,
   LabBatchOut,
   LabBatchUpdate,
+  MoveSessionResult,
   PeriodSlotNestedCreate,
   PeriodSlotOut,
   PeriodSlotUpdate,
@@ -37,9 +42,14 @@ import type {
   SectionCreate,
   SectionOut,
   SectionUpdate,
+  SlotSuggestionOut,
+  SolveJobOut,
+  SolvePresetsOut,
+  SolveRequest,
   SubjectCreate,
   SubjectOut,
   SubjectUpdate,
+  SubstitutionSessionOut,
   TeacherCreate,
   TeacherOut,
   TeacherPreferenceNestedCreate,
@@ -53,10 +63,17 @@ import type {
   TimeStructureCreate,
   TimeStructureOut,
   TimeStructureUpdate,
+  TimetableSessionOut,
+  UnplacedRequirementOut,
   UserCreate,
   UserOut,
   UserSelfUpdate,
   UserUpdate,
+  VerificationReportOut,
+  VersionCreate,
+  VersionDetailOut,
+  VersionDiffOut,
+  VersionOut,
   WeightProfileCreate,
   WeightProfileOut,
   WeightProfileUpdate,
@@ -279,4 +296,170 @@ export const usersApi = {
   remove: (id: number) => api.delete(`/api/users/${id}`).then(() => undefined),
   me: () => api.get<UserOut>("/api/users/me").then((r) => r.data),
   updateMe: (data: UserSelfUpdate) => api.put<UserOut>("/api/users/me", data).then((r) => r.data),
+};
+
+// ---- Timetable versions / workspace ----
+export const versionsApi = {
+  list: () => api.get<VersionOut[]>("/api/versions").then((r) => r.data),
+  get: (id: number) => api.get<VersionDetailOut>(`/api/versions/${id}`).then((r) => r.data),
+  create: (data: VersionCreate) => api.post<{ id: number }>("/api/versions", data).then((r) => r.data),
+  remove: (id: number) => api.delete(`/api/versions/${id}`).then(() => undefined),
+
+  listSessions: (versionId: number, params?: { section_id?: number; teacher_id?: number; room_id?: number }) =>
+    api.get<TimetableSessionOut[]>(`/api/versions/${versionId}/sessions`, { params }).then((r) => r.data),
+  listUnplaced: (versionId: number) =>
+    api.get<UnplacedRequirementOut[]>(`/api/versions/${versionId}/unplaced`).then((r) => r.data),
+  verify: (versionId: number) =>
+    api.post<VerificationReportOut>(`/api/versions/${versionId}/verify`).then((r) => r.data),
+  publish: (versionId: number) => api.post<{ ok: true }>(`/api/versions/${versionId}/publish`).then((r) => r.data),
+  rollback: (versionId: number) => api.post<{ ok: true }>(`/api/versions/${versionId}/rollback`).then((r) => r.data),
+
+  checkMove: (versionId: number, sessionId: number, data: CheckMoveRequest) =>
+    api
+      .post<CheckMoveResult>(`/api/versions/${versionId}/sessions/${sessionId}/check-move`, data)
+      .then((r) => r.data),
+  move: (versionId: number, sessionId: number, data: CheckMoveRequest) =>
+    api.post<MoveSessionResult>(`/api/versions/${versionId}/sessions/${sessionId}/move`, data).then((r) => r.data),
+  suggestions: (versionId: number, sessionId: number) =>
+    api
+      .get<SlotSuggestionOut[]>(`/api/versions/${versionId}/sessions/${sessionId}/suggestions`)
+      .then((r) => r.data),
+  lock: (versionId: number, sessionId: number) =>
+    api.post<{ ok: true }>(`/api/versions/${versionId}/sessions/${sessionId}/lock`).then((r) => r.data),
+  unlock: (versionId: number, sessionId: number) =>
+    api.post<{ ok: true }>(`/api/versions/${versionId}/sessions/${sessionId}/unlock`).then((r) => r.data),
+
+  diff: (versionId: number, otherVersionId: number) =>
+    api.get<VersionDiffOut>(`/api/versions/${versionId}/diff/${otherVersionId}`).then((r) => r.data),
+};
+
+// ---- Solve ----
+export const solveApi = {
+  presets: (versionId: number) =>
+    api.get<SolvePresetsOut>(`/api/versions/${versionId}/solve/presets`).then((r) => r.data),
+  start: (versionId: number, data: SolveRequest) =>
+    api.post<{ job_id: string }>(`/api/versions/${versionId}/solve`, data).then((r) => r.data),
+  jobStatus: (versionId: number, jobId: string) =>
+    api.get<SolveJobOut>(`/api/versions/${versionId}/solve/jobs/${jobId}`).then((r) => r.data),
+  stopJob: (versionId: number, jobId: string) =>
+    api.post<{ ok: true }>(`/api/versions/${versionId}/solve/jobs/${jobId}/stop`).then((r) => r.data),
+  prechecks: (versionId: number) =>
+    api.get<DiagnosisFindingOut[]>(`/api/versions/${versionId}/solve/prechecks`).then((r) => r.data),
+};
+
+// ---- Substitution ----
+export const substitutionApi = {
+  plan: (versionId: number, teacherId: number, dayIndex: number) =>
+    api
+      .get<SubstitutionSessionOut[]>(`/api/versions/${versionId}/substitution`, {
+        params: { teacher_id: teacherId, day_index: dayIndex },
+      })
+      .then((r) => r.data),
+};
+
+// ---- Export (binary downloads) ----
+async function downloadFile(
+  url: string,
+  params: Record<string, string | number | undefined>,
+  fallbackFilename: string,
+): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const response = await api.get<Blob>(url, { params, responseType: "blob" });
+    const disposition = response.headers["content-disposition"] as string | undefined;
+    const match = disposition ? /filename="?([^";]+)"?/i.exec(disposition) : null;
+    return { blob: response.data, filename: match?.[1]?.trim() || fallbackFilename };
+  } catch (err) {
+    // Error responses also come back as a Blob since responseType is "blob" on the request;
+    // decode it back to JSON so getErrorMessage() can read the FastAPI `detail` field.
+    const data = (err as { response?: { data?: unknown } }).response?.data;
+    if (data instanceof Blob && data.type.includes("json")) {
+      let decoded: string | undefined;
+      try {
+        const text = await data.text();
+        decoded = (JSON.parse(text) as { detail?: string }).detail;
+      } catch {
+        decoded = undefined;
+      }
+      if (decoded) throw new Error(decoded);
+    }
+    throw err;
+  }
+}
+
+export const exportsApi = {
+  excelSection: (versionId: number, sectionId: number, collegeName?: string) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/excel/section/${sectionId}`,
+      { college_name: collegeName },
+      `section_${sectionId}.xlsx`,
+    ),
+  excelTeacher: (versionId: number, teacherId: number, collegeName?: string) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/excel/teacher/${teacherId}`,
+      { college_name: collegeName },
+      `teacher_${teacherId}.xlsx`,
+    ),
+  excelRoom: (versionId: number, roomId: number, collegeName?: string) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/excel/room/${roomId}`,
+      { college_name: collegeName },
+      `room_${roomId}.xlsx`,
+    ),
+  excelAllSections: (versionId: number, collegeName?: string) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/excel/all-sections`,
+      { college_name: collegeName },
+      "all_sections.xlsx",
+    ),
+  excelAllTeachers: (versionId: number, collegeName?: string) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/excel/all-teachers`,
+      { college_name: collegeName },
+      "all_teachers.xlsx",
+    ),
+  pdfSection: (versionId: number, sectionId: number, collegeName?: string) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/pdf/section/${sectionId}`,
+      { college_name: collegeName },
+      `section_${sectionId}.pdf`,
+    ),
+  pdfTeacher: (versionId: number, teacherId: number, collegeName?: string) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/pdf/teacher/${teacherId}`,
+      { college_name: collegeName },
+      `teacher_${teacherId}.pdf`,
+    ),
+  pdfRoom: (versionId: number, roomId: number, collegeName?: string) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/pdf/room/${roomId}`,
+      { college_name: collegeName },
+      `room_${roomId}.pdf`,
+    ),
+  icalTeacher: (versionId: number, teacherId: number, termStart: string, termWeeks: number) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/ical/teacher/${teacherId}`,
+      { term_start: termStart, term_weeks: termWeeks },
+      `teacher_${teacherId}.ics`,
+    ),
+  icalSection: (versionId: number, sectionId: number, termStart: string, termWeeks: number) =>
+    downloadFile(
+      `/api/versions/${versionId}/export/ical/section/${sectionId}`,
+      { term_start: termStart, term_weeks: termWeeks },
+      `section_${sectionId}.ics`,
+    ),
+};
+
+// ---- Import ----
+export const importApi = {
+  downloadTemplate: () => downloadFile("/api/import/template", {}, "timetable_import_template.xlsx"),
+  importExcel: (file: File, dryRun: boolean) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api
+      .post<ImportReportOut>("/api/import/excel", form, {
+        params: { dry_run: dryRun },
+        headers: { "Content-Type": "multipart/form-data" },
+      })
+      .then((r) => r.data);
+  },
 };

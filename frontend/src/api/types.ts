@@ -414,3 +414,188 @@ export interface ApiErrorDetail {
   msg: string;
   input?: unknown;
 }
+
+// ---- Timetable versions / workspace ----
+
+export interface VersionOut {
+  id: number;
+  name: string;
+  status: VersionStatus;
+  parent_version_id: number | null;
+  hard_violations: number;
+  soft_score: number;
+  solve_status: SolveStatus | string | null;
+  created_at: string;
+}
+
+export interface VersionDetailOut extends VersionOut {
+  scorecard: Record<string, unknown>;
+  notes: string | null;
+}
+
+export interface VersionCreate {
+  name: string;
+  parent_version_id?: number | null;
+  notes?: string | null;
+}
+
+export interface TimetableSessionOut {
+  id: number;
+  kind: SessionKind;
+  day_index: number;
+  period_index: number;
+  num_periods: number;
+  subject_id: number | null;
+  subject_code: string | null;
+  teacher_id: number | null;
+  teacher_name: string | null;
+  room_id: number | null;
+  room_code: string | null;
+  lab_batch_id: number | null;
+  section_ids: number[];
+  sync_group: string | null;
+  is_locked: boolean;
+  elective_basket_id: number | null;
+  combined_class_id: number | null;
+}
+
+export interface UnplacedRequirementOut {
+  id: number;
+  description: string;
+  allocation_id: number | null;
+  elective_basket_id: number | null;
+  combined_class_id: number | null;
+  sessions_missing: number;
+}
+
+export interface HardViolationOut {
+  category: string;
+  message: string;
+  details: Record<string, unknown>;
+}
+
+export interface VerificationReportOut {
+  version_id: number;
+  hard_violation_count: number;
+  is_clean: boolean;
+  hard_violations: HardViolationOut[];
+  scorecard: Record<string, unknown>;
+}
+
+export interface PublishConflictOut {
+  message: string;
+  violations: string[];
+}
+
+export interface CheckMoveRequest {
+  day_index: number;
+  period_index: number;
+  teacher_id?: number | null;
+  room_id?: number | null;
+  confirm: boolean;
+}
+
+export interface CheckMoveResult {
+  ok: boolean;
+  conflicts: unknown[];
+}
+
+export interface MoveSessionResult {
+  ok: boolean;
+  session_id: number;
+  verification: VerificationReportOut;
+}
+
+export interface SlotSuggestionOut {
+  day_index?: number;
+  period_index?: number;
+  [key: string]: unknown;
+}
+
+export interface VersionDiffEntryOut {
+  key: unknown;
+  from?: [number, number, number | null];
+  to?: [number, number, number | null];
+  was?: [number, number, number | null];
+  now?: [number, number, number | null];
+}
+
+export interface VersionDiffOut {
+  moved: VersionDiffEntryOut[];
+  added: VersionDiffEntryOut[];
+  removed: VersionDiffEntryOut[];
+  unchanged: number;
+}
+
+// ---- Solve ----
+
+export interface SolvePresetsOut {
+  presets: string[];
+  weights: Record<string, Record<string, number>>;
+}
+
+export interface SolveRequest {
+  weight_preset?: string | null;
+  weights?: Record<string, number> | null;
+  time_limit_seconds: number;
+  num_workers: number;
+  random_seed?: number | null;
+  deterministic: boolean;
+  stability_weight: number;
+  lock_from_self: boolean;
+  stabilize_against_parent: boolean;
+}
+
+export interface SolveJobOut {
+  job_id: string;
+  version_id: number;
+  status: string;
+  elapsed_seconds: number;
+  objective_value: number | null;
+  best_bound: number | null;
+  solutions_found: number;
+  unplaced_count: number;
+  error: string | null;
+}
+
+export const SOLVE_TERMINAL_STATUSES = ["feasible", "optimal", "infeasible", "stopped", "failed"];
+
+export interface DiagnosisFindingOut {
+  category: string;
+  message: string;
+  severity: "blocking" | "warning";
+  suggestions: string[];
+  details: Record<string, unknown>;
+}
+
+// ---- Substitution ----
+
+export interface SubstitutionCandidateOut {
+  teacher_id: number;
+  name: string;
+  current_weekly_load: number;
+}
+
+export interface SubstitutionSessionOut {
+  session_id: number;
+  subject_id: number;
+  day_index: number;
+  period_index: number;
+  num_periods: number;
+  candidates: SubstitutionCandidateOut[];
+}
+
+// ---- Import ----
+
+export interface ImportErrorOut {
+  sheet: string;
+  row: number;
+  column: string;
+  message: string;
+}
+
+export interface ImportReportOut {
+  committed: boolean;
+  created_counts: Record<string, number>;
+  errors: ImportErrorOut[];
+}
