@@ -1,0 +1,44 @@
+{
+  "size": "medium",
+  "stats": {
+    "departments": 6,
+    "programs": 6,
+    "sections": 25,
+    "teachers": 80,
+    "rooms": 40,
+    "subjects": 110
+  },
+  "generation_time_s": 0.362,
+  "model_build_time_s": 0.123,
+  "groups": 113,
+  "occurrences": 324,
+  "solve_time_s": 189.859,
+  "solve_status": "FEASIBLE",
+  "time_to_first_feasible_s": 31.9042944,
+  "unplaced_count": 21,
+  "final_objective": 2102526.0,
+  "final_bound": 1200810.0,
+  "optimality_gap": 0.42887269883939605,
+  "peak_rss_mb": 5244.9,
+  "checkpoints": {
+    "60": {
+      "t": 58.459615400000004,
+      "objective": 13002012.0,
+      "bound": 900602.0,
+      "rss_mb": 4656.98828125
+    },
+    "120": {
+      "t": 119.4067277,
+      "objective": 4202642.0,
+      "bound": 1200758.0,
+      "rss_mb": 4383.66796875
+    },
+    "180": {
+      "t": 179.7199266,
+      "objective": 2102526.0,
+      "bound": 1200810.0,
+      "rss_mb": 4431.18359375
+    }
+  },
+  "hard_violations_after_verify": 21
+}
